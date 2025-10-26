@@ -128,7 +128,7 @@ if submitted:
         st.session_state["results_df"] = extract_anchors(urls, selected_brand)
 
 # ============================================================
-# 6) Filters & grid (Ag-Grid with “Copy column values” in menu)
+# 6) Filters & grid (Ag-Grid)
 # ============================================================
 df = st.session_state["results_df"]
 if df is not None and not df.empty:
@@ -157,19 +157,23 @@ if df is not None and not df.empty:
 
     st.success("✅ Extraction complete! (Results persist until you extract again.)")
 
-    # --------- Ag-Grid setup with custom menu item ----------
+    # --------- Ag-Grid setup with custom "Copy column values" ----------
     gb = GridOptionsBuilder.from_dataframe(df_view)
-    gb.configure_default_column(editable=False, resizable=True, sortable=True, filter=True)
+    gb.configure_default_column(
+        editable=False, resizable=True, sortable=True, filter=True
+    )
     gb.configure_grid_options(
         enableRangeSelection=True,
         rowSelection="multiple",
-        suppressRowClickSelection=True
+        suppressRowClickSelection=True,
+        suppressMenuHide=False,          # show the 3-dots column menu
+        ensureDomOrder=True
     )
 
-    # Add custom "Copy column values" to BOTH the header (three dots) menu and the right-click context menu
+    # Custom menu item (header menu + right-click)
     getMainMenuItems = JsCode("""
     function(params) {
-      var items = params.defaultItems.slice();
+      var items = params.defaultItems ? params.defaultItems.slice() : [];
       var col = params.column ? params.column.getColId() : null;
       if (col) {
         items.unshift({
@@ -206,8 +210,8 @@ if df is not None and not df.empty:
 
     getContextMenuItems = JsCode("""
     function(params) {
-      var col = params.column ? params.column.getColId() : null;
       var items = params.defaultItems ? params.defaultItems.slice() : ['copy','copyWithHeaders','separator','export'];
+      var col = params.column ? params.column.getColId() : null;
       if (col) {
         items.unshift({
           name: 'Copy column values',
@@ -245,17 +249,28 @@ if df is not None and not df.empty:
         getMainMenuItems=getMainMenuItems,
         getContextMenuItems=getContextMenuItems
     )
-
     grid_options = gb.build()
 
-    AgGrid(
+    # IMPORTANT: return the current view (after sort/filter) so we can offer a rock-solid copy fallback
+    grid_response = AgGrid(
         df_view,
         gridOptions=grid_options,
-        allow_unsafe_jscode=True,     # required for custom JS menu items
-        update_mode=GridUpdateMode.NO_UPDATE,
+        allow_unsafe_jscode=True,
+        update_mode=GridUpdateMode.MODEL_CHANGED,   # return filtered/sorted data
+        data_return_mode="AS_INPUT",
         fit_columns_on_grid_load=True,
         theme="streamlit"
     )
+
+    # ---------- Fallback: copy visible column via code box ----------
+    visible_df = pd.DataFrame(grid_response["data"]) if "data" in grid_response else df_view
+    st.caption("Copy helper (uses the **current filtered/sorted view**):")
+    default_idx = list(visible_df.columns).index("Anchor Text") if "Anchor Text" in visible_df.columns else 0
+    col_to_copy = st.selectbox("Choose column to copy:", visible_df.columns.tolist(), index=default_idx, key="copy_col_select")
+    lines = visible_df[col_to_copy].astype(str).where(visible_df[col_to_copy].notna(), "").tolist()
+    copy_block = "\r\n".join(lines)
+    st.code(copy_block, language="text")
+    st.caption("Click the copy icon, then single-click a cell in Google Sheets (don’t enter edit mode) and paste.")
 
 elif df is not None:
     st.warning("⚠️ No data extracted.")
