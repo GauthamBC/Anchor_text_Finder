@@ -133,22 +133,5 @@ if st.button("🚀 Extract Anchor Texts"):
 
             st.success("✅ Extraction complete!")
             st.dataframe(df, use_container_width=True)
-
-            # ============================================================
-            # Copy-as-grid: one column you can select and copy
-            # ============================================================
-            st.subheader("Copy Anchor Text → Google Sheets")
-            st.caption("Click inside the table, press Ctrl/Cmd + A, then Ctrl/Cmd + C. "
-                       "In Google Sheets, click once on the destination cell (don’t enter edit mode) and paste.")
-
-            col_df = pd.DataFrame({"Anchor Text": df["Anchor Text"].astype(str).where(df["Anchor Text"].notna(), "")})
-            # Disabled so people don't accidentally edit; copy still works.
-            st.data_editor(
-                col_df,
-                use_container_width=True,
-                hide_index=True,
-                disabled=True
-            )
-
         else:
             st.warning("⚠️ No data extracted.")
