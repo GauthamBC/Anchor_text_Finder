@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 # ============================================================
 # 0) Persist results across reruns
@@ -127,7 +128,7 @@ if submitted:
         st.session_state["results_df"] = extract_anchors(urls, selected_brand)
 
 # ============================================================
-# 6) Filters & table (results persist while you change filters)
+# 6) Filters & grid (Ag-Grid with “Copy column values” in menu)
 # ============================================================
 df = st.session_state["results_df"]
 if df is not None and not df.empty:
@@ -155,7 +156,106 @@ if df is not None and not df.empty:
     # else: Show all
 
     st.success("✅ Extraction complete! (Results persist until you extract again.)")
-    st.dataframe(df_view, use_container_width=True)
+
+    # --------- Ag-Grid setup with custom menu item ----------
+    gb = GridOptionsBuilder.from_dataframe(df_view)
+    gb.configure_default_column(editable=False, resizable=True, sortable=True, filter=True)
+    gb.configure_grid_options(
+        enableRangeSelection=True,
+        rowSelection="multiple",
+        suppressRowClickSelection=True
+    )
+
+    # Add custom "Copy column values" to BOTH the header (three dots) menu and the right-click context menu
+    getMainMenuItems = JsCode("""
+    function(params) {
+      var items = params.defaultItems.slice();
+      var col = params.column ? params.column.getColId() : null;
+      if (col) {
+        items.unshift({
+          name: 'Copy column values',
+          action: function() {
+            var api = params.api;
+            var rowCount = api.getDisplayedRowCount();
+            var out = [];
+            for (var i = 0; i < rowCount; i++) {
+              var row = api.getDisplayedRowAtIndex(i);
+              var v = (row && row.data) ? row.data[col] : '';
+              out.push(v == null ? '' : String(v));
+            }
+            var text = out.join('\\r\\n');
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(text);
+            } else {
+              var ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+          },
+          icon: '<span style="font-weight:bold;">📋</span>'
+        });
+      }
+      return items;
+    }
+    """)
+
+    getContextMenuItems = JsCode("""
+    function(params) {
+      var col = params.column ? params.column.getColId() : null;
+      var items = params.defaultItems ? params.defaultItems.slice() : ['copy','copyWithHeaders','separator','export'];
+      if (col) {
+        items.unshift({
+          name: 'Copy column values',
+          action: function() {
+            var api = params.api;
+            var rowCount = api.getDisplayedRowCount();
+            var out = [];
+            for (var i = 0; i < rowCount; i++) {
+              var row = api.getDisplayedRowAtIndex(i);
+              var v = (row && row.data) ? row.data[col] : '';
+              out.push(v == null ? '' : String(v));
+            }
+            var text = out.join('\\r\\n');
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(text);
+            } else {
+              var ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+          },
+          icon: '<span style="font-weight:bold;">📋</span>'
+        });
+      }
+      return items;
+    }
+    """)
+
+    gb.configure_grid_options(
+        getMainMenuItems=getMainMenuItems,
+        getContextMenuItems=getContextMenuItems
+    )
+
+    grid_options = gb.build()
+
+    AgGrid(
+        df_view,
+        gridOptions=grid_options,
+        allow_unsafe_jscode=True,     # required for custom JS menu items
+        update_mode=GridUpdateMode.NO_UPDATE,
+        fit_columns_on_grid_load=True,
+        theme="streamlit"
+    )
 
 elif df is not None:
     st.warning("⚠️ No data extracted.")
