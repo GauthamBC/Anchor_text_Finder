@@ -73,13 +73,17 @@ def extract_anchors(urls, selected_brand):
     for i, url in enumerate(urls, start=1):
         row = {"Source URL": url}
         title, soup, removed = fetch_page(url)
-        row["Page Title"] = title
 
+        # ✅ If page is removed or soup failed, set friendly labels for BOTH columns
         if removed or soup is None:
+            row["Page Title"] = "❌ Page Removed / Content Unavailable"
             row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
             results.append(row)
             progress_bar.progress(i / total)
             continue
+
+        # ✅ Normal extraction paths
+        row["Page Title"] = title
 
         try:
             if selected_brand == "All brands":
@@ -101,13 +105,13 @@ def extract_anchors(urls, selected_brand):
                 row["Anchor Text"] = "; ".join(anchors) if anchors else f"❌ No {domain} link found"
 
         except Exception as e:
-            row["Anchor Text"] = f"⚠️ Error Processing Page: {str(e)}"
+            row["Page Title"] = "⚠️ Error Processing Page"
+            row["Anchor Text"] = f"⚠️ {str(e)}"
 
         results.append(row)
         progress_bar.progress(i / total)
 
     return pd.DataFrame(results, columns=["Source URL", "Page Title", "Anchor Text"])
-
 # ============================================================
 # 5. Run extraction + Show results
 # ============================================================
