@@ -63,7 +63,7 @@ def fetch_page(url):
         return f"⚠️ Error: {str(e)}", None, False
 
 # ============================================================
-# 4. Extraction function (with safe soup handling)
+# 4. Extraction function
 # ============================================================
 def extract_anchors(urls, selected_brand):
     results = []
@@ -74,7 +74,6 @@ def extract_anchors(urls, selected_brand):
         row = {"Source URL": url}
         title, soup, removed = fetch_page(url)
 
-        # ✅ If page is removed or soup failed, set friendly labels for BOTH columns
         if removed or soup is None:
             row["Page Title"] = "❌ Page Removed / Content Unavailable"
             row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
@@ -82,7 +81,6 @@ def extract_anchors(urls, selected_brand):
             progress_bar.progress(i / total)
             continue
 
-        # ✅ Normal extraction paths
         row["Page Title"] = title
 
         try:
@@ -112,6 +110,7 @@ def extract_anchors(urls, selected_brand):
         progress_bar.progress(i / total)
 
     return pd.DataFrame(results, columns=["Source URL", "Page Title", "Anchor Text"])
+
 # ============================================================
 # 5. Run extraction + Show results
 # ============================================================
@@ -134,5 +133,33 @@ if st.button("🚀 Extract Anchor Texts"):
 
             st.success("✅ Extraction complete!")
             st.dataframe(df, use_container_width=True)
+
+            # ============================================================
+            # Copy Anchors (Row-aligned for Sheets)
+            # ============================================================
+            if st.button("📋 Copy Anchor Text (Sheet-Friendly)"):
+                lines = []
+                for _, row in df.iterrows():
+                    cell = str(row.get("Anchor Text", "")).strip()
+
+                    if (
+                        not cell
+                        or cell.startswith("❌")
+                        or cell.startswith("⚠️")
+                        or cell == "No links found"
+                    ):
+                        lines.append("")  # Blank row to preserve alignment
+                    else:
+                        parts = [p.strip() for p in cell.split(";") if p.strip()]
+                        lines.append("; ".join(parts))
+
+                output_text = "\n".join(lines)
+
+                st.text_area(
+                    "✅ Copy and paste into Google Sheets (aligned row-by-row):",
+                    output_text,
+                    height=220
+                )
+
         else:
             st.warning("⚠️ No data extracted.")
