@@ -112,7 +112,26 @@ def extract_anchors(urls, selected_brand):
     return pd.DataFrame(results, columns=["Source URL", "Page Title", "Anchor Text"])
 
 # ============================================================
-# 5. Run extraction + Show results
+# 5. Status inference (for filtering only; not shown in table)
+# ============================================================
+def infer_status(row):
+    at = str(row.get("Anchor Text", "") or "")
+    pt = str(row.get("Page Title", "") or "")
+
+    if at.startswith("❌ Page Removed / Content Unavailable"):
+        return "Removed"
+    if at == "No links found":
+        return "No Links"
+    if at.startswith("❌ No ") and at.endswith("link found"):
+        return "No Brand Link"
+    if at.startswith("⚠️") or pt.startswith("⚠️"):
+        return "Error"
+    if at and not at.startswith(("❌", "⚠️")):
+        return "Has Links"
+    return "Unknown"
+
+# ============================================================
+# 6. Run extraction + Show results + Filters
 # ============================================================
 if st.button("🚀 Extract Anchor Texts"):
     if not urls:
@@ -123,15 +142,55 @@ if st.button("🚀 Extract Anchor Texts"):
         df = extract_anchors(urls, selected_brand)
 
         if not df.empty:
-            csv = df.to_csv(index=False).encode("utf-8")
+            # Full CSV download (unfiltered)
+            csv_full = df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Download CSV",
-                data=csv,
+                data=csv_full,
                 file_name="anchor_text_results.csv",
                 mime="text/csv"
             )
 
+            # Build a status column for filtering only
+            df["_status"] = df.apply(infer_status, axis=1)
+
+            # Filter UI
+            filt = st.selectbox(
+                "Filter rows:",
+                [
+                    "Show all",
+                    "Only Removed",
+                    "Hide Removed",
+                    "Only “No links found”",
+                    "Only Errors",
+                    "Only Rows With Links",
+                ],
+                index=0,
+                help="Filter by the computed status of each row."
+            )
+
+            df_view = df.copy()
+            if filt == "Only Removed":
+                df_view = df_view[df_view["_status"] == "Removed"]
+            elif filt == "Hide Removed":
+                df_view = df_view[df_view["_status"] != "Removed"]
+            elif filt == "Only “No links found”":
+                df_view = df_view[df_view["_status"] == "No Links"]
+            elif filt == "Only Errors":
+                df_view = df_view[df_view["_status"] == "Error"]
+            elif filt == "Only Rows With Links":
+                df_view = df_view[df_view["_status"] == "Has Links"]
+
+            # Optional: filtered CSV download
+            csv_filtered = df_view.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Download Filtered CSV",
+                data=csv_filtered,
+                file_name="anchor_text_results_filtered.csv",
+                mime="text/csv"
+            )
+
             st.success("✅ Extraction complete!")
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df_view.drop(columns=["_status"]), use_container_width=True)
         else:
             st.warning("⚠️ No data extracted.")
