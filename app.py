@@ -136,7 +136,7 @@ if df is not None and not df.empty:
     is_removed = anchor_series.str.startswith("❌ Page Removed / Content Unavailable")
     is_no_links = anchor_series.eq("No links found")
 
-    # Filter UI — only the four you wanted
+    # Four filters you wanted
     filt = st.selectbox(
         "Filter rows:",
         ["Show all", "Only Removed", 'Only "No links found"', "Hide Removed"],
@@ -154,39 +154,8 @@ if df is not None and not df.empty:
         df_view = df_view[~is_removed]
     # else: Show all
 
-    # SIDE-BY-SIDE DOWNLOAD BUTTONS
-    c1, c2 = st.columns(2)
-    with c1:
-        csv_full = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download CSV", data=csv_full, file_name="anchor_text_results.csv", mime="text/csv")
-    with c2:
-        csv_filtered = df_view.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Filtered CSV", data=csv_filtered, file_name="anchor_text_results_filtered.csv", mime="text/csv")
-
     st.success("✅ Extraction complete! (Results persist until you extract again.)")
     st.dataframe(df_view, use_container_width=True)
 
-    # --------------------------------------------------------
-    # Copy Column control (works with the CURRENT FILTER)
-    # --------------------------------------------------------
-    st.markdown("**Copy a column (respects current filter):**")
-    col_to_copy = st.selectbox("Choose column to copy:", df_view.columns.tolist(), index=2, key="copy_col_select")
-    include_header = st.checkbox("Include header in first line", value=False, key="copy_include_header")
-
-    if st.button("📋 Copy selected column"):
-        series = df_view[col_to_copy]
-        lines = []  # one line per row, preserving order and blanks
-        if include_header:
-            lines.append(str(col_to_copy))
-        for v in series.tolist():
-            if v is None or (isinstance(v, float) and pd.isna(v)):
-                lines.append("")
-            else:
-                lines.append(str(v))
-        output_text = "\r\n".join(lines)  # CRLF helps Sheets
-
-        # Use st.code for built-in copy icon
-        st.code(output_text, language="text")
-        st.caption("Tip: click the copy icon, then single-click the target cell in Sheets (don’t enter edit mode) and paste.")
 elif df is not None:
     st.warning("⚠️ No data extracted.")
