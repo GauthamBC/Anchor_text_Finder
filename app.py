@@ -4,15 +4,15 @@ import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
 
-# =========================
-# Session state (persist DF)
-# =========================
+# ============================================================
+# 0) Persist results across reruns
+# ============================================================
 if "results_df" not in st.session_state:
-    st.session_state.results_df = None
+    st.session_state["results_df"] = None
 
-# =========================
+# ============================================================
 # 1) Brand/domain map
-# =========================
+# ============================================================
 BRAND_DOMAINS = {
     "Action Network": "actionnetwork.com",
     "Vegas Insider": "vegasinsider.com",
@@ -21,13 +21,13 @@ BRAND_DOMAINS = {
 }
 brand_options = ["All brands"] + list(BRAND_DOMAINS.keys())
 
-# =========================
+# ============================================================
 # 2) Layout
-# =========================
+# ============================================================
 st.set_page_config(page_title="Anchor Text Extractor", layout="wide")
 st.title("🔗 Anchor Text Extractor")
 
-# Use a form so editing inputs doesn’t rerun extraction
+# Use a form so editing inputs doesn't wipe results
 with st.form("input_form", clear_on_submit=False):
     selected_brand = st.selectbox("Brand:", brand_options, index=0)
     urls_input = st.text_area(
@@ -35,15 +35,17 @@ with st.form("input_form", clear_on_submit=False):
         height=200,
         placeholder="https://example.com/article1\nhttps://example.com/article2"
     )
-
     urls = [line.strip() for line in urls_input.strip().splitlines() if line.strip()]
     st.markdown(f"**URLs entered:** {len(urls)} / 100")
 
     submitted = st.form_submit_button("🚀 Extract Anchor Texts")
 
-# =========================
-# 3) Helper: Fetch + 404 detection
-# =========================
+if len(urls) > 100:
+    st.error(f"⚠️ Too many URLs entered ({len(urls)}). Please limit to 100 or fewer.")
+
+# ============================================================
+# 3) Helper: Fetch + Detect Removed
+# ============================================================
 def fetch_page(url):
     try:
         res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
@@ -67,12 +69,12 @@ def fetch_page(url):
     except Exception as e:
         return f"⚠️ Error: {str(e)}", None, False
 
-# =========================
+# ============================================================
 # 4) Extraction
-# =========================
+# ============================================================
 def extract_anchors(urls, selected_brand):
     results = []
-    progress = st.progress(0)
+    progress_bar = st.progress(0)
     total = max(1, len(urls))
 
     for i, url in enumerate(urls, start=1):
@@ -83,7 +85,7 @@ def extract_anchors(urls, selected_brand):
             row["Page Title"] = "❌ Page Removed / Content Unavailable"
             row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
             results.append(row)
-            progress.progress(i / total)
+            progress_bar.progress(i / total)
             continue
 
         row["Page Title"] = title
@@ -94,93 +96,72 @@ def extract_anchors(urls, selected_brand):
                 for brand, domain in BRAND_DOMAINS.items():
                     for a in soup.find_all("a", href=True):
                         if domain in a["href"]:
-                            txt = a.get_text(strip=True)
-                            if txt:
-                                anchor_list.append(txt)
+                            text = a.get_text(strip=True)
+                            if text:
+                                anchor_list.append(text)
                 row["Anchor Text"] = "; ".join(anchor_list) if anchor_list else "No links found"
             else:
                 domain = BRAND_DOMAINS[selected_brand]
                 anchors = [
-                    a.get_text(strip=True)
-                    for a in soup.find_all("a", href=True)
+                    a.get_text(strip=True) for a in soup.find_all("a", href=True)
                     if domain in a["href"] and a.get_text(strip=True)
                 ]
                 row["Anchor Text"] = "; ".join(anchors) if anchors else f"❌ No {domain} link found"
+
         except Exception as e:
             row["Page Title"] = "⚠️ Error Processing Page"
             row["Anchor Text"] = f"⚠️ {str(e)}"
 
         results.append(row)
-        progress.progress(i / total)
+        progress_bar.progress(i / total)
 
     return pd.DataFrame(results, columns=["Source URL", "Page Title", "Anchor Text"])
 
-# =========================
-# 5) Status inference (for filters only)
-# =========================
-def infer_status(row):
-    at = str(row.get("Anchor Text", "") or "")
-    pt = str(row.get("Page Title", "") or "")
-    if at.startswith("❌ Page Removed / Content Unavailable"):
-        return "Removed"
-    if at == "No links found":
-        return "No Links"
-    if at.startswith("❌ No ") and "link found" in at:
-        return "No Brand Link"
-    if at.startswith("⚠️") or pt.startswith("⚠️"):
-        return "Error"
-    if at and not at.startswith(("❌", "⚠️")):
-        return "Has Links"
-    return "Unknown"
-
-# =========================
-# 6) Run extraction (persist) when submitted
-# =========================
+# ============================================================
+# 5) Run extraction (persist results)
+# ============================================================
 if submitted:
     if not urls:
         st.warning("⚠️ Please enter at least one URL.")
-    elif len(urls) > 100:
-        st.error("❌ Too many URLs entered.")
-    else:
-        st.session_state.results_df = extract_anchors(urls, selected_brand)
+    elif len(urls) <= 100:
+        st.session_state["results_df"] = extract_anchors(urls, selected_brand)
 
-# =========================
-# 7) Filters & table (persist across reruns)
-# =========================
-df = st.session_state.results_df
+# ============================================================
+# 6) Filters & table (results persist while you change filters)
+# ============================================================
+df = st.session_state["results_df"]
 if df is not None and not df.empty:
-    df = df.copy()
-    df["_status"] = df.apply(infer_status, axis=1)
+    # Build masks once
+    anchor_series = df["Anchor Text"].astype(str)
+    is_removed = anchor_series.str.startswith("❌ Page Removed / Content Unavailable")
+    is_no_links = anchor_series.eq("No links found")
 
-    # Downloads
-    csv_full = df.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Download CSV", data=csv_full, file_name="anchor_text_results.csv", mime="text/csv")
-
-    # Filter bar (won’t clear results)
+    # Filter UI — only the four you wanted
     filt = st.selectbox(
         "Filter rows:",
-        ["Show all", "Only Removed", "Hide Removed", "Only “No links found”", "Only Errors", "Only Rows With Links"],
+        ["Show all", "Only Removed", 'Only "No links found"', "Hide Removed"],
         index=0,
-        key="filter_select"
+        key="row_filter_select",
+        help="Results persist until you click Extract again."
     )
 
-    df_view = df
+    df_view = df.copy()
     if filt == "Only Removed":
-        df_view = df[df["_status"] == "Removed"]
+        df_view = df_view[is_removed]
+    elif filt == 'Only "No links found"':
+        df_view = df_view[is_no_links]
     elif filt == "Hide Removed":
-        df_view = df[df["_status"] != "Removed"]
-    elif filt == "Only “No links found”":
-        df_view = df[df["_status"] == "No Links"]
-    elif filt == "Only Errors":
-        df_view = df[df["_status"] == "Error"]
-    elif filt == "Only Rows With Links":
-        df_view = df[df["_status"] == "Has Links"]
+        df_view = df_view[~is_removed]
+    # else: Show all
 
-    # Optional: filtered download
-    csv_filtered = df_view.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
+    # Downloads
+    csv_full = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download CSV", data=csv_full, file_name="anchor_text_results.csv", mime="text/csv")
+
+    csv_filtered = df_view.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download Filtered CSV", data=csv_filtered, file_name="anchor_text_results_filtered.csv", mime="text/csv")
 
-    st.success("✅ Extraction complete! (Results persist until you run Extract again.)")
-    st.dataframe(df_view.drop(columns=["_status"]), use_container_width=True)
+    st.success("✅ Extraction complete! (Results persist until you extract again.)")
+    st.dataframe(df_view, use_container_width=True)
 elif df is not None:
     st.warning("⚠️ No data extracted.")
