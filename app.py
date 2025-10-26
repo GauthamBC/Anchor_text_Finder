@@ -37,35 +37,25 @@ if len(urls) > 100:
     st.error(f"⚠️ Too many URLs entered ({len(urls)}). Please limit to 100 or fewer.")
 
 # ============================================================
-# 3. Helper: Fetch page + detect removed/404
+# 3. Helper: Fetch + Detect Removed
 # ============================================================
 def fetch_page(url):
-    """
-    Fetch the page and detect if content is removed (404).
-    Returns:
-    - title (str)
-    - soup (BeautifulSoup or None)
-    - removed (bool)
-    """
     try:
         res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         status = res.status_code
         html = res.text
 
-        # HTTP-level 404
         if status == 404:
             return "(Removed / 404)", None, True
 
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.string.strip() if soup.title and soup.title.string else "(No title found)"
 
-        # Title-based 404
         if "404" in title or "not found" in title.lower():
-            return "(Removed / 404)", soup, True
+            return "(Removed / 404)", None, True
 
-        # CMS/Template-level 404 detection (Mahoning Matters, etc.)
         if "isErrorPage" in html or '"template":"404"' in html or "Unable to locate the page" in html:
-            return "(Removed / 404)", soup, True
+            return "(Removed / 404)", None, True
 
         return title, soup, False
 
@@ -73,64 +63,48 @@ def fetch_page(url):
         return f"⚠️ Error: {str(e)}", None, False
 
 # ============================================================
-# 4. Extraction function
+# 4. Extraction function (with safe soup handling)
 # ============================================================
 def extract_anchors(urls, selected_brand):
     results = []
     progress_bar = st.progress(0)
     total = len(urls)
 
-    if selected_brand == "All brands":
-        for i, url in enumerate(urls, start=1):
-            row = {"Source URL": url}
-            all_anchors = []
-            try:
-                title, soup, removed = fetch_page(url)
-                row["Page Title"] = title
+    for i, url in enumerate(urls, start=1):
+        row = {"Source URL": url}
+        title, soup, removed = fetch_page(url)
+        row["Page Title"] = title
 
-                if removed:
-                    row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
-                else:
-                    for brand, domain in BRAND_DOMAINS.items():
-                        for a in soup.find_all("a", href=True):
-                            if domain in a["href"]:
-                                text = a.get_text(strip=True)
-                                if text:
-                                    all_anchors.append(text)
-
-                    row["Anchor Text"] = "; ".join(all_anchors) if all_anchors else "No links found"
-
-            except Exception as e:
-                row["Page Title"] = f"⚠️ Error: {str(e)}"
-                row["Anchor Text"] = f"⚠️ Error: {str(e)}"
-
+        if removed or soup is None:
+            row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
             results.append(row)
             progress_bar.progress(i / total)
+            continue
 
-    else:
-        domain = BRAND_DOMAINS[selected_brand]
-        for i, url in enumerate(urls, start=1):
-            row = {"Source URL": url}
-            try:
-                title, soup, removed = fetch_page(url)
-                row["Page Title"] = title
+        try:
+            if selected_brand == "All brands":
+                anchor_list = []
+                for brand, domain in BRAND_DOMAINS.items():
+                    for a in soup.find_all("a", href=True):
+                        if domain in a["href"]:
+                            text = a.get_text(strip=True)
+                            if text:
+                                anchor_list.append(text)
+                row["Anchor Text"] = "; ".join(anchor_list) if anchor_list else "No links found"
 
-                if removed:
-                    row["Anchor Text"] = "❌ Page Removed / Content Unavailable"
-                else:
-                    anchors = [
-                        a.get_text(strip=True)
-                        for a in soup.find_all("a", href=True)
-                        if domain in a["href"] and a.get_text(strip=True)
-                    ]
-                    row["Anchor Text"] = "; ".join(anchors) if anchors else f"❌ No {domain} link found"
+            else:
+                domain = BRAND_DOMAINS[selected_brand]
+                anchors = [
+                    a.get_text(strip=True) for a in soup.find_all("a", href=True)
+                    if domain in a["href"] and a.get_text(strip=True)
+                ]
+                row["Anchor Text"] = "; ".join(anchors) if anchors else f"❌ No {domain} link found"
 
-            except Exception as e:
-                row["Page Title"] = f"⚠️ Error: {str(e)}"
-                row["Anchor Text"] = f"⚠️ Error: {str(e)}"
+        except Exception as e:
+            row["Anchor Text"] = f"⚠️ Error Processing Page: {str(e)}"
 
-            results.append(row)
-            progress_bar.progress(i / total)
+        results.append(row)
+        progress_bar.progress(i / total)
 
     return pd.DataFrame(results, columns=["Source URL", "Page Title", "Anchor Text"])
 
