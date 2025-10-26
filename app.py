@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
-import streamlit.components.v1 as components  # for copy-to-clipboard
 
 # ============================================================
 # 1. Brand/domain map
@@ -136,57 +135,20 @@ if st.button("🚀 Extract Anchor Texts"):
             st.dataframe(df, use_container_width=True)
 
             # ============================================================
-            # Copy exactly the 3rd column ("Anchor Text"), row-aligned
+            # Copy-as-grid: one column you can select and copy
             # ============================================================
-            if st.button("📋 Copy Anchor Text (Exact Column)"):
-                col = df.get("Anchor Text")
-                if col is None:
-                    st.error("Column 'Anchor Text' not found.")
-                else:
-                    # Keep order, include blanks/errors exactly as shown
-                    lines = []
-                    for v in col.tolist():
-                        if v is None or (isinstance(v, float) and pd.isna(v)):
-                            lines.append("")
-                        else:
-                            lines.append(str(v))
+            st.subheader("Copy Anchor Text → Google Sheets")
+            st.caption("Click inside the table, press Ctrl/Cmd + A, then Ctrl/Cmd + C. "
+                       "In Google Sheets, click once on the destination cell (don’t enter edit mode) and paste.")
 
-                    output_text = "\r\n".join(lines)  # CRLF for Sheets friendliness
-
-                    st.text_area(
-                        "✅ Copy preview (one line per URL from the 'Anchor Text' column):",
-                        output_text,
-                        height=220
-                    )
-
-                    # One-click copy to clipboard
-                    components.html(f"""
-                    <div style="margin:8px 0 12px 0;">
-                      <button id="copybtn" style="
-                          padding:8px 12px;border-radius:8px;border:1px solid #ccc;cursor:pointer;">
-                          Copy to Clipboard
-                      </button>
-                      <span id="status" style="margin-left:8px;color:#16a34a;"></span>
-                      <textarea id="payload" style="position:absolute;left:-9999px;top:-9999px;">{output_text}</textarea>
-                    </div>
-                    <script>
-                      const btn = document.getElementById('copybtn');
-                      const status = document.getElementById('status');
-                      btn.addEventListener('click', async () => {{
-                        try {{
-                          const text = document.getElementById('payload').value;
-                          await navigator.clipboard.writeText(text);
-                          status.textContent = 'Copied!';
-                          setTimeout(() => status.textContent = '', 1500);
-                        }} catch (e) {{
-                          status.textContent = 'Press Ctrl/Cmd+C to copy';
-                          setTimeout(() => status.textContent = '', 2000);
-                        }}
-                      }});
-                    </script>
-                    """, height=60)
-
-            st.info("Paste tip: click once on the destination cell in Google Sheets (don’t enter edit mode), then paste.")
+            col_df = pd.DataFrame({"Anchor Text": df["Anchor Text"].astype(str).where(df["Anchor Text"].notna(), "")})
+            # Disabled so people don't accidentally edit; copy still works.
+            st.data_editor(
+                col_df,
+                use_container_width=True,
+                hide_index=True,
+                disabled=True
+            )
 
         else:
             st.warning("⚠️ No data extracted.")
