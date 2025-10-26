@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
-import streamlit.components.v1 as components  # NEW: for copy-to-clipboard
+import streamlit.components.v1 as components  # for copy-to-clipboard
 
 # ============================================================
 # 1. Brand/domain map
@@ -136,60 +136,57 @@ if st.button("🚀 Extract Anchor Texts"):
             st.dataframe(df, use_container_width=True)
 
             # ============================================================
-            # Copy Anchors (Row-aligned for Sheets) + real clipboard button
+            # Copy exactly the 3rd column ("Anchor Text"), row-aligned
             # ============================================================
-            if st.button("📋 Copy Anchor Text (Sheet-Friendly)"):
-                lines = []
-                for _, row in df.iterrows():
-                    cell = str(row.get("Anchor Text", "")).strip()
+            if st.button("📋 Copy Anchor Text (Exact Column)"):
+                col = df.get("Anchor Text")
+                if col is None:
+                    st.error("Column 'Anchor Text' not found.")
+                else:
+                    # Keep order, include blanks/errors exactly as shown
+                    lines = []
+                    for v in col.tolist():
+                        if v is None or (isinstance(v, float) and pd.isna(v)):
+                            lines.append("")
+                        else:
+                            lines.append(str(v))
 
-                    if (
-                        not cell
-                        or cell.startswith("❌")
-                        or cell.startswith("⚠️")
-                        or cell == "No links found"
-                    ):
-                        lines.append("")  # Blank row to preserve alignment
-                    else:
-                        parts = [p.strip() for p in cell.split(";") if p.strip()]
-                        lines.append("; ".join(parts))
+                    output_text = "\r\n".join(lines)  # CRLF for Sheets friendliness
 
-                # Use CRLF to be extra-friendly with clipboard parsers
-                output_text = "\r\n".join(lines)
+                    st.text_area(
+                        "✅ Copy preview (one line per URL from the 'Anchor Text' column):",
+                        output_text,
+                        height=220
+                    )
 
-                # Visible preview
-                st.text_area(
-                    "✅ Copy preview (one line per URL). Tip: single-click a cell in Google Sheets, then paste:",
-                    output_text,
-                    height=220
-                )
+                    # One-click copy to clipboard
+                    components.html(f"""
+                    <div style="margin:8px 0 12px 0;">
+                      <button id="copybtn" style="
+                          padding:8px 12px;border-radius:8px;border:1px solid #ccc;cursor:pointer;">
+                          Copy to Clipboard
+                      </button>
+                      <span id="status" style="margin-left:8px;color:#16a34a;"></span>
+                      <textarea id="payload" style="position:absolute;left:-9999px;top:-9999px;">{output_text}</textarea>
+                    </div>
+                    <script>
+                      const btn = document.getElementById('copybtn');
+                      const status = document.getElementById('status');
+                      btn.addEventListener('click', async () => {{
+                        try {{
+                          const text = document.getElementById('payload').value;
+                          await navigator.clipboard.writeText(text);
+                          status.textContent = 'Copied!';
+                          setTimeout(() => status.textContent = '', 1500);
+                        }} catch (e) {{
+                          status.textContent = 'Press Ctrl/Cmd+C to copy';
+                          setTimeout(() => status.textContent = '', 2000);
+                        }}
+                      }});
+                    </script>
+                    """, height=60)
 
-                # Real copy-to-clipboard button via a small HTML component
-                components.html(f"""
-                <div style="margin:8px 0 12px 0;">
-                  <button id="copybtn" style="
-                      padding:8px 12px;border-radius:8px;border:1px solid #ccc;cursor:pointer;">
-                      Copy to Clipboard
-                  </button>
-                  <span id="status" style="margin-left:8px;color:#16a34a;"></span>
-                  <textarea id="payload" style="position:absolute;left:-9999px;top:-9999px;">{output_text}</textarea>
-                </div>
-                <script>
-                  const btn = document.getElementById('copybtn');
-                  const status = document.getElementById('status');
-                  btn.addEventListener('click', async () => {{
-                    try {{
-                      const text = document.getElementById('payload').value;
-                      await navigator.clipboard.writeText(text);
-                      status.textContent = 'Copied!';
-                      setTimeout(() => status.textContent = '', 1500);
-                    }} catch (e) {{
-                      status.textContent = 'Press Ctrl/Cmd+C to copy';
-                      setTimeout(() => status.textContent = '', 2000);
-                    }}
-                  }});
-                </script>
-                """, height=60)
+            st.info("Paste tip: click once on the destination cell in Google Sheets (don’t enter edit mode), then paste.")
 
         else:
             st.warning("⚠️ No data extracted.")
