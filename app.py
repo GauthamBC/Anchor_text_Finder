@@ -135,7 +135,7 @@ if st.button("🚀 Extract Anchor Texts"):
             st.dataframe(df, use_container_width=True)
 
             # ============================================================
-            # Copy Anchors (Row-aligned for Sheets)
+            # Copy Anchors (Row-aligned for Sheets) with built-in copy
             # ============================================================
             if st.button("📋 Copy Anchor Text (Sheet-Friendly)"):
                 lines = []
@@ -155,11 +155,9 @@ if st.button("🚀 Extract Anchor Texts"):
 
                 output_text = "\n".join(lines)
 
-                st.text_area(
-                    "✅ Copy and paste into Google Sheets (aligned row-by-row):",
-                    output_text,
-                    height=220
-                )
+                # Use st.code so you get a built-in copy button (top-right)
+                st.write("Tip: click the copy icon on the right to copy everything.")
+                st.code(output_text, language="text")
 
         else:
             st.warning("⚠️ No data extracted.")
