@@ -5,6 +5,12 @@ from bs4 import BeautifulSoup
 from io import BytesIO
 
 # ============================================================
+# 0. Session state init (to persist results across reruns)
+# ============================================================
+if "results_df" not in st.session_state:
+    st.session_state["results_df"] = None
+
+# ============================================================
 # 1. Brand/domain map
 # ============================================================
 BRAND_DOMAINS = {
@@ -122,7 +128,7 @@ def infer_status(row):
         return "Removed"
     if at == "No links found":
         return "No Links"
-    if at.startswith("❌ No ") and at.endswith("link found"):
+    if at.startswith("❌ No ") and at.endswith(" link found"):
         return "No Brand Link"
     if at.startswith("⚠️") or pt.startswith("⚠️"):
         return "Error"
@@ -131,7 +137,7 @@ def infer_status(row):
     return "Unknown"
 
 # ============================================================
-# 6. Run extraction + Show results + Filters
+# 6. Extract on click -> persist results; then show filters/views
 # ============================================================
 if st.button("🚀 Extract Anchor Texts"):
     if not urls:
@@ -139,58 +145,60 @@ if st.button("🚀 Extract Anchor Texts"):
     elif len(urls) > 100:
         st.error("❌ Too many URLs entered.")
     else:
-        df = extract_anchors(urls, selected_brand)
+        st.session_state["results_df"] = extract_anchors(urls, selected_brand)
 
-        if not df.empty:
-            # Full CSV download (unfiltered)
-            csv_full = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="⬇️ Download CSV",
-                data=csv_full,
-                file_name="anchor_text_results.csv",
-                mime="text/csv"
-            )
+# If we have results saved, show controls and table (persists across reruns)
+if st.session_state["results_df"] is not None and not st.session_state["results_df"].empty:
+    df = st.session_state["results_df"].copy()
+    df["_status"] = df.apply(infer_status, axis=1)
 
-            # Build a status column for filtering only
-            df["_status"] = df.apply(infer_status, axis=1)
+    # Downloads (full + filtered)
+    csv_full = df.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download CSV",
+        data=csv_full,
+        file_name="anchor_text_results.csv",
+        mime="text/csv"
+    )
 
-            # Filter UI
-            filt = st.selectbox(
-                "Filter rows:",
-                [
-                    "Show all",
-                    "Only Removed",
-                    "Hide Removed",
-                    "Only “No links found”",
-                    "Only Errors",
-                    "Only Rows With Links",
-                ],
-                index=0,
-                help="Filter by the computed status of each row."
-            )
+    # Filter UI (persist selection via key so it won’t reset unexpectedly)
+    filt = st.selectbox(
+        "Filter rows:",
+        [
+            "Show all",
+            "Only Removed",
+            "Hide Removed",
+            "Only “No links found”",
+            "Only Errors",
+            "Only Rows With Links",
+        ],
+        index=0,
+        key="row_filter_select",
+        help="Filter by the computed status of each row. Results persist until you click Extract again."
+    )
 
-            df_view = df.copy()
-            if filt == "Only Removed":
-                df_view = df_view[df_view["_status"] == "Removed"]
-            elif filt == "Hide Removed":
-                df_view = df_view[df_view["_status"] != "Removed"]
-            elif filt == "Only “No links found”":
-                df_view = df_view[df_view["_status"] == "No Links"]
-            elif filt == "Only Errors":
-                df_view = df_view[df_view["_status"] == "Error"]
-            elif filt == "Only Rows With Links":
-                df_view = df_view[df_view["_status"] == "Has Links"]
+    df_view = df.copy()
+    if filt == "Only Removed":
+        df_view = df_view[df_view["_status"] == "Removed"]
+    elif filt == "Hide Removed":
+        df_view = df_view[df_view["_status"] != "Removed"]
+    elif filt == "Only “No links found”":
+        df_view = df_view[df_view["_status"] == "No Links"]
+    elif filt == "Only Errors":
+        df_view = df_view[df_view["_status"] == "Error"]
+    elif filt == "Only Rows With Links":
+        df_view = df_view[df_view["_status"] == "Has Links"]
 
-            # Optional: filtered CSV download
-            csv_filtered = df_view.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="⬇️ Download Filtered CSV",
-                data=csv_filtered,
-                file_name="anchor_text_results_filtered.csv",
-                mime="text/csv"
-            )
+    # Filtered CSV
+    csv_filtered = df_view.drop(columns=["_status"]).to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download Filtered CSV",
+        data=csv_filtered,
+        file_name="anchor_text_results_filtered.csv",
+        mime="text/csv"
+    )
 
-            st.success("✅ Extraction complete!")
-            st.dataframe(df_view.drop(columns=["_status"]), use_container_width=True)
-        else:
-            st.warning("⚠️ No data extracted.")
+    st.success("✅ Extraction complete! (Results persist until you extract again.)")
+    st.dataframe(df_view.drop(columns=["_status"]), use_container_width=True)
+elif st.session_state["results_df"] is not None:
+    st.warning("⚠️ No data extracted.")
